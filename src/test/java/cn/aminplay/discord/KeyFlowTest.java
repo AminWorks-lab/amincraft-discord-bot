@@ -80,6 +80,18 @@ public final class KeyFlowTest {
         for (JsonElement o : ban.getAsJsonArray("options")) if (o.getAsJsonObject().get("name").getAsString().equals("member") && o.getAsJsonObject().get("type").getAsInt() == 6) member = true;
         check(member, "封禁 可以选 Discord 成员");
 
+        // 2026-10-11 account-link: 「关联正版账号」 answers
+        check(KeyRules.premiumReply(Map.of("status", "sent", "name", "AminDoll")).contains("确认关联"), "正版关联：已弹窗");
+        check(KeyRules.premiumReply(Map.of("status", "offline")).contains("先进服"), "正版关联：不在线");
+        check(KeyRules.premiumReply(Map.of("status", "not-premium", "name", "x")).contains("学习版"), "正版关联：不是正版");
+        check(KeyRules.premiumReply(Map.of("status", "has-other", "other", "Old")).contains("Old"), "正版关联：已有别的正版号");
+        check(KeyRules.premiumReply(Map.of("status", "error")).contains("稍后"), "正版关联：出错");
+        check(KeyRules.premiumResult("AminDoll", "ok").contains("同一份"), "正版关联结果：成功");
+        check(KeyRules.premiumResult("AminDoll", "denied").contains("拒绝"), "正版关联结果：拒绝");
+        boolean linkCmd = false;
+        for (JsonElement c : Interactions.definitions().get(0).getAsJsonObject().getAsJsonArray("options")) if (c.getAsJsonObject().get("name").getAsString().equals("linkpremium")) linkCmd = true;
+        check(linkCmd, "有 /minmin 关联正版");
+
         System.out.println("KeyFlowTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

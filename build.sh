@@ -8,7 +8,7 @@ OUT="build-$N"
 [ -e "$OUT" ] && { echo "$OUT 已存在，请换一个新编号"; exit 1; }
 TC="${TC:?请把 TC 设成工具链目录：含 jdk/ 和 deps/（Paper API 1.21.11、Adventure、Gson 等 jar）}"
 JDK="$TC/jdk/bin"
-CP=$(find "$TC/deps" -name '*.jar' \( -path '*papermc/paper*' -o -path '*kyori*' -o -path '*google/code/gson*' -o -path '*jspecify*' -o -path '*jetbrains/annotations*' -o -path '*bungeecord-chat*' -o -path '*google/guava*' -o -path '*snakeyaml*' \) \
+CP=$(find "$TC/deps/" -name '*.jar' \( -path '*papermc/paper*' -o -path '*kyori*' -o -path '*google/code/gson*' -o -path '*jspecify*' -o -path '*jetbrains/annotations*' -o -path '*bungeecord-chat*' -o -path '*google/guava*' -o -path '*snakeyaml*' \) \
   ! -name 'paper-api-1.21.11-R0.1-20260511.115010-91.jar' | tr '\n' ';')
 mkdir -p "$OUT/classes" "$OUT/test-classes"
 find src/main/java -name '*.java' > "$OUT/main-sources.txt"
@@ -16,16 +16,13 @@ find src/main/java -name '*.java' > "$OUT/main-sources.txt"
 cp src/main/resources/* "$OUT/classes/"
 find src/test/java -name '*.java' > "$OUT/test-sources.txt"
 "$JDK/javac.exe" -J-Duser.language=en --release 21 -encoding UTF-8 -cp "$CP;$OUT/classes" -d "$OUT/test-classes" @"$OUT/test-sources.txt" 2>&1 | tee "$OUT/javac-test.log"
-"$JDK/java.exe" -cp "$OUT/classes;$OUT/test-classes" cn.aminplay.discord.BotRulesTest | tee "$OUT/unit-tests.log"
-"$JDK/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp "$CP;$OUT/classes;$OUT/test-classes" cn.aminplay.discord.NotifierTest | tee -a "$OUT/unit-tests.log"
-# 2026-10-07 daily replay bundle: 回放贴模拟 Discord 测试；每一行「N passed, M failed」都必须是 0 failed
-"$JDK/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp "$CP;$OUT/classes;$OUT/test-classes" cn.aminplay.discord.ReplayPosterTest | tee -a "$OUT/unit-tests.log"
-# 2026-10-07 message collect
-"$JDK/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp "$CP;$OUT/classes;$OUT/test-classes" cn.aminplay.discord.CollectorTest | tee -a "$OUT/unit-tests.log"
-# 2026-10-07 auth-gate
-"$JDK/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp "$CP;$OUT/classes;$OUT/test-classes" cn.aminplay.discord.KeyFlowTest | tee -a "$OUT/unit-tests.log"
-# 2026-10-08 bot-plots: 类脑市地块申请（假 Discord + 假 City API）
-"$JDK/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp "$CP;$OUT/classes;$OUT/test-classes" cn.aminplay.discord.PlotDeskTest | tee -a "$OUT/unit-tests.log"
-[ "$(grep -c ' passed, ' "$OUT/unit-tests.log")" -ge 7 ] && ! grep ' passed, ' "$OUT/unit-tests.log" | grep -vq ' 0 failed' || { echo "单元测试失败"; exit 1; }
+# 全部单元测试（假 Discord / 假 MiniGameHub，不连网）。每个测试都必须打印「X: N passed, 0 failed」
+TESTS="BotRulesTest NotifierTest ReplayPosterTest CollectorTest KeyFlowTest PlotDeskTest PostingTest PromoTest MatchChatTest FeedbackPosterTest HighlightPosterTest SayBridgeTest PublicPingTest WebLoginFlowTest"
+: > "$OUT/unit-tests.log"
+for T in $TESTS; do
+  "$JDK/java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -cp "$CP;$OUT/classes;$OUT/test-classes" "cn.aminplay.discord.$T" | tee -a "$OUT/unit-tests.log"
+  grep -q "^$T: [0-9]* passed, 0 failed" "$OUT/unit-tests.log" || { echo "单元测试失败：$T"; exit 1; }
+done
+! grep ' passed, ' "$OUT/unit-tests.log" | grep -vq ' 0 failed' || { echo "单元测试失败"; exit 1; }
 "$JDK/jar.exe" --create --file "$OUT/AminPlayDiscord.jar" -C "$OUT/classes" .
 sha1sum "$OUT/AminPlayDiscord.jar" | tee "$OUT/sha1.txt"

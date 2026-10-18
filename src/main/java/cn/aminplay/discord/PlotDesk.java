@@ -204,7 +204,7 @@ final class PlotDesk {
         return true;
     }
 
-    // 2026-10-08 release-136: channels.plots may be a (private) thread (user: a private 子区). An archived thread rejects
+    // 2026-10-08 release-136: channels.plots may be a (private) thread (user: 子区 <private-thread-id>). An archived thread rejects
     // posts and edits with Discord error 50083 → unarchive it once (PATCH archived:false, same as ReplayPoster) and retry.
     @FunctionalInterface interface RestCall { JsonElement run() throws IOException; }
     JsonElement inThread(String channel, RestCall call) throws IOException {

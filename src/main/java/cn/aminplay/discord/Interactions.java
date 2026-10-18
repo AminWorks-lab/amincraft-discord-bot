@@ -36,9 +36,20 @@ final class Interactions {
     private static final String ADMIN_PERMS = String.valueOf(1L << 5); // MANAGE_GUILD
 
     private final AminPlayDiscord plugin;
+    private final WebLoginFlow webLogin;
+    private final PingRules pingRules = new PingRules();   // 2026-10-18 public ping cooldowns (in memory)
 
     Interactions(AminPlayDiscord plugin) {
         this.plugin = plugin;
+        webLogin = new WebLoginFlow(new WebLoginFlow.Host() {
+            @Override public BotConfig cfg() { return plugin.cfg(); }
+            @Override public String applicationId() { return plugin.applicationId(); }
+            @Override public DiscordRest rest() { return plugin.rest(); }
+            @Override public Map<String, Object> claim(String discordId, String interactionId) throws Exception {
+                HubAuthKeys keys = plugin.authKeys();
+                return keys == null ? Map.of("status", "unavailable") : keys.claimWebLogin(discordId, interactionId);
+            }
+        });
     }
 
     // =============== 指令定义（注册到 Discord） ===============
@@ -48,8 +59,12 @@ final class Interactions {
      * Discord 只能按整条指令隐藏，所以 /minmin 对所有人可见；管理类子指令在机器人这边检查权限。
      */
     static JsonArray definitions() {
+        return definitions(false);
+    }
+
+    static JsonArray definitions(boolean webLoginEnabled) {
         JsonArray subs = new JsonArray();
-        for (JsonElement e : commands()) {
+        for (JsonElement e : commands(webLoginEnabled)) {
             JsonObject c = e.getAsJsonObject();
             boolean group = false;
             if (c.has("options")) for (JsonElement o : c.getAsJsonArray("options")) if (o.getAsJsonObject().get("type").getAsInt() == 1) group = true;
@@ -76,22 +91,33 @@ final class Interactions {
 
     /** 2026-10-08 bot-plots：注册日志里的指令清单（按 commands() 的中文名生成，不再手写）。 */
     static String commandSummary() {
+        return commandSummary(false);
+    }
+
+    static String commandSummary(boolean webLoginEnabled) {
         List<String> names = new ArrayList<>();
-        for (JsonElement e : commands()) {
+        for (JsonElement e : commands(webLoginEnabled)) {
             JsonObject c = e.getAsJsonObject();
             names.add(c.getAsJsonObject("name_localizations").get("zh-CN").getAsString());
         }
         return "/" + ROOT + " " + String.join(" / ", names);
     }
 
-    private static JsonArray commands() {
+    private static JsonArray commands(boolean webLoginEnabled) {
         JsonArray a = new JsonArray();
         a.add(cmd("status", "状态", "查看 MC 服务器状态和在线玩家", null));
         a.add(cmd("privacy", "隐私", "选择是否让机器人收集你的消息（反馈汇总、聊天互通）", null,   // 2026-10-08 privacy
                 sub("optout", "退出", "以后不再收集你的消息，也不转发到游戏里"),
                 sub("optin", "恢复", "恢复收集和转发"),
                 sub("status", "查看", "查看你现在的选择")));
+        // 2026-10-17 聊天互通不读频道消息时（没有 Message Content Intent），用这个把话发进游戏公屏
+        JsonObject sayText = opt(3, "text", "内容", "要发到游戏公屏的话", true, false);
+        sayText.addProperty("max_length", SAY_MAX);
+        a.add(cmd("say", "说", "在聊天互通频道里把一句话发到游戏公屏", null, sayText));
         a.add(cmd("key", "领取密钥", "领取学习版玩家登录密钥（每个 Discord 账号只发一次，只有你能看到）", null));   // 2026-10-07 auth-gate
+        a.add(cmd("linkpremium", "关联正版", "正版玩家：把正版账号关联到这个 Discord（先进服，游戏里会弹窗让你确认）", null,   // 2026-10-11 account-link
+                opt(3, "name", "正版名字", "你的正版游戏名（要在线）", true, false)));
+        if (webLoginEnabled) a.add(cmd(WebLoginFlow.COMMAND, "网页登录码", "领取已有绑定账号的网页一次性登录码（2 分钟内有效，只有你能看到）", null));
         // 2026-10-08 bot-plots：类脑市地块申请（只给绑定了游戏号的成员；结果只有自己能看到）
         JsonObject reason = opt(3, "reason", "理由", "为什么想要这块地、打算建什么（管理员审批时会看到）", true, false);
         reason.addProperty("max_length", 300);
@@ -108,6 +134,18 @@ final class Interactions {
                 opt(3, "notify", "通知", "要 @ 谁（订阅名单 / 身份组 / 所有人；不填=不 @）", false, true),
                 opt(3, "tag", "标签", "论坛贴子的标签（只对论坛频道有效）", false, true),
                 opt(5, "ingame", "游戏内", "同时在游戏内广播", false, false)));
+        // 2026-10-12 bot-promo：在哪个频道 / 子区设置，就定时发到哪里
+        JsonObject every = opt(4, "every", "间隔", "每隔几小时整点发一次（1–24，从 0 点算起；和「时间」二选一）", false, false);
+        every.addProperty("min_value", 1);
+        every.addProperty("max_value", 24);
+        JsonObject promoText = opt(3, "text", "文字", "自定义介绍文字（不填=默认广告卡片）", false, false);
+        promoText.addProperty("max_length", PromoRules.MAX_TEXT);
+        a.add(cmd("promo", "定时广告", "在当前频道或子区定时发小游戏服务器的广告", ADMIN_PERMS,
+                sub("set", "设置", "在当前频道 / 子区开启定时广告（时间和间隔二选一）",
+                        opt(3, "times", "时间", "每天几点发，例如 12:00,20:00（默认北京时间）", false, false), every, promoText),
+                sub("preview", "预览", "马上在当前频道 / 子区发一条广告看看效果"),
+                sub("off", "关闭", "停止当前频道 / 子区的定时广告"),
+                sub("list", "列表", "查看所有定时广告")));
         a.add(cmd("rolepanel", "身份面板", "发布领取身份组 / 订阅通知的按钮面板", ADMIN_PERMS,
                 channelOpt("channel", "频道", "发到哪个频道（不填=当前频道）")));
         a.add(cmd("notifygroup", "通知组", "管理通知组（不占身份组，@ 时临时创建）", ADMIN_PERMS,
@@ -118,9 +156,10 @@ final class Interactions {
                 sub("remove", "删除", "删除一个通知组（订阅名单一起删除）",
                         opt(3, "group", "通知组", "要删除的通知组", true, true)),
                 sub("list", "列表", "查看所有通知组和订阅人数")));
-        a.add(cmd("ping", "通知", "@ 某个通知组", ADMIN_PERMS,
-                opt(3, "group", "通知组", "要 @ 的通知组", true, true),
-                opt(3, "message", "内容", "跟在 @ 后面的一句话", false, false),
+        // 2026-10-18 public ping：对所有人开放；一般成员只能 @ ping.public 里的项目（例如「缺人找我」），有冷却
+        a.add(cmd("ping", "通知", "@ 某个身份组 / 通知组（一般成员只能 @ 开放的那几个，例如缺人找我）", null,
+                opt(3, "group", "通知组", "要 @ 的身份组 / 通知组", true, true),
+                opt(3, "message", "内容", "跟在 @ 后面的一句话，例如 起床战争 3 缺 1", false, false),
                 pingChannelOpt()));
         a.add(cmd("cmd", "执行", "在 MC 服务器控制台执行指令", ADMIN_PERMS,
                 opt(3, "command", "指令", "要执行的指令，例如 say 大家好", true, false)));
@@ -224,6 +263,12 @@ final class Interactions {
     // =============== 分发 ===============
 
     void handle(JsonObject d) {
+        // Isolate sensitive responses from the legacy handler's exception/logging path.
+        // The only runtime caller is the existing official Gateway INTERACTION_CREATE dispatch.
+        if (WebLoginFlow.isCommand(d)) {
+            webLogin.handle(d);
+            return;
+        }
         Ctx ctx = new Ctx(d);
         try {
             BotConfig cfg = plugin.cfg();
@@ -258,7 +303,7 @@ final class Interactions {
 
     private void command(Ctx ctx) throws Exception {
         String name = ctx.command;
-        if (!name.equals("status") && !name.equals("key") && !name.equals("privacy") && !PlotDesk.COMMANDS.contains(name) && !ctx.isAdmin()) {   // 2026-10-08 bot-plots: plot commands for everyone (bound accounts checked in PlotDesk)   // 2026-10-08 privacy: for everyone   // 2026-10-07 auth-gate: 领取密钥 is for everyone
+        if (!name.equals("status") && !name.equals("key") && !name.equals("linkpremium") && !name.equals("privacy") && !name.equals("say") && !name.equals("ping") && !PlotDesk.COMMANDS.contains(name) && !ctx.isAdmin()) {   // 2026-10-18 public ping: checked inside ping()   // 2026-10-08 bot-plots: plot commands for everyone (bound accounts checked in PlotDesk)   // 2026-10-08 privacy: for everyone   // 2026-10-07 auth-gate: 领取密钥 is for everyone
             ctx.ephemeral = true;
             ctx.text("⛔ 你没有权限使用这个指令。");
             return;
@@ -266,11 +311,14 @@ final class Interactions {
         switch (name) {
             case "status" -> status(ctx);
             case "key" -> claimKey(ctx);   // 2026-10-07 auth-gate
+            case "linkpremium" -> linkPremium(ctx, ctx.option("name"));   // 2026-10-11 account-link
             case "privacy" -> privacy(ctx);   // 2026-10-08 privacy
+            case "say" -> say(ctx);   // 2026-10-17 bridge without Message Content Intent
             case "plotapply", "plotjoin", "plotmine" -> plugin.plots().handle(ctx.d);   // 2026-10-08 bot-plots
             case "lookup" -> lookupKeys(ctx);
             case "collect" -> collect(ctx);
             case "announce" -> announceModal(ctx);
+            case "promo" -> promo(ctx);   // 2026-10-12 bot-promo
             case "rolepanel" -> rolePanel(ctx);
             case "notifygroup" -> notifyGroup(ctx);
             case "ping" -> ping(ctx);
@@ -289,6 +337,87 @@ final class Interactions {
         ctx.defer(false);
         JsonObject embed = plugin.sync(plugin::statusEmbed);
         ctx.reply(message(null, embed));
+    }
+
+    // =============== 2026-10-12 bot-promo：/minmin 定时广告 ===============
+
+    private void promo(Ctx ctx) throws Exception {
+        ctx.ephemeral = true;
+        PromoPoster poster = plugin.promo();
+        if (poster == null) {
+            ctx.text("定时广告还没准备好，请稍后再试。");
+            return;
+        }
+        BotConfig cfg = plugin.cfg();
+        if (!PromoRules.mayManage(cfg.promoUsers, ctx.userId())) {   // 2026-10-12 服主：只有服主能设置
+            ctx.text(cfg.promoUsers.isEmpty() ? "定时广告还没指定谁能设置：请在机器人 config.yml 的 promo.allowed-users 里填上 Discord 用户 id。"
+                    : "定时广告只有服主可以设置。");
+            return;
+        }
+        PromoStore store = poster.store();
+        java.time.ZoneId zone = cfg.promoZone;
+        String channel = ctx.d.get("channel_id").getAsString();
+        String sub = ctx.subcommand();
+        Instant now = Instant.now();
+        switch (sub == null ? "" : sub) {
+            case "set" -> {
+                String times = ctx.option("times"), every = ctx.option("every");
+                boolean hasTimes = times != null && !times.isBlank();
+                if (hasTimes == (every != null)) {
+                    ctx.text("「时间」和「间隔」要填一个（只能填一个）。例如 时间:12:00,20:00 或 间隔:3");
+                    return;
+                }
+                PromoRules.Rule rule;
+                String text;
+                try {
+                    rule = hasTimes ? PromoRules.Rule.daily(PromoRules.parseTimes(times)) : PromoRules.Rule.every(Integer.parseInt(every));
+                    text = PromoRules.cleanText(ctx.option("text"));
+                } catch (IllegalArgumentException e) {
+                    ctx.text("❌ " + e.getMessage());
+                    return;
+                }
+                PromoStore.Entry old = store.get(channel);
+                PromoStore.Entry e = new PromoStore.Entry(channel, rule, text, ctx.userTag(), PromoRules.initialLastSlot(rule, now, zone),
+                        old == null ? 0 : old.lastPostedAt(), null);
+                if (!store.put(e)) {
+                    ctx.text("定时广告已经有 " + PromoStore.MAX + " 个了，请先关掉不用的。");
+                    return;
+                }
+                ctx.text("✅ 已在 <#" + channel + "> 开启定时广告：" + rule.describe() + "（" + zone.getId() + "）\n"
+                        + "下一次：" + PromoRules.fmtSlot(PromoRules.nextSlot(rule, now, zone), zone)
+                        + "　内容：" + (text == null ? "默认广告卡片" : "自定义文字 + 地址/在线人数/玩法") + "\n"
+                        + "离上一条广告不到 " + cfg.promoMinGapMinutes + " 分钟时会跳过那一次。可以先用「预览」看看效果；机器人需要在这里有「发送消息」「嵌入链接」权限。");
+                plugin.adminLog("📣 " + ctx.actorName() + "（<@" + ctx.userId() + ">）在 <#" + channel + "> 设置了定时广告：" + rule.describe());
+            }
+            case "preview" -> {
+                ctx.defer(true);
+                PromoStore.Entry e = store.get(channel);
+                poster.postNow(channel, e == null ? null : e.text(), now);
+                ctx.text("✅ 已发送一条广告" + (e == null ? "（这里还没有开启定时广告）" : ""));
+            }
+            case "off" -> {
+                boolean had = store.remove(channel);
+                ctx.text(had ? "✅ 已关闭 <#" + channel + "> 的定时广告。" : "这里没有开启定时广告。");
+                if (had) plugin.adminLog("📣 " + ctx.actorName() + "（<@" + ctx.userId() + ">）关闭了 <#" + channel + "> 的定时广告");
+            }
+            case "list" -> {
+                List<PromoStore.Entry> all = store.all();
+                if (all.isEmpty()) {
+                    ctx.text("还没有定时广告。在想发广告的频道或子区里用 /minmin 定时广告 设置。");
+                    return;
+                }
+                StringBuilder b = new StringBuilder("**定时广告**（" + zone.getId() + "）\n");
+                for (PromoStore.Entry e : all) {
+                    b.append("• <#").append(e.channelId()).append("> ").append(e.rule().describe())
+                            .append(e.text() == null ? " · 默认卡片" : " · 自定义文字");
+                    if (e.active()) b.append(" · 下一次 ").append(PromoRules.fmtSlot(PromoRules.nextSlot(e.rule(), now, zone), zone));
+                    else b.append(" · ⚠️ 已停用：").append(e.disabled());
+                    b.append("\n");
+                }
+                ctx.text(b.toString());
+            }
+            default -> ctx.text("未知子指令");
+        }
     }
 
     // =============== /announce ===============
@@ -343,6 +472,12 @@ final class Interactions {
         String id = ctx.data.get("custom_id").getAsString();
         if (id.startsWith(PlotRules.MODAL)) {   // 2026-10-08 bot-plots: reject reason
             plugin.plots().handle(ctx.d);
+            return;
+        }
+        if (id.equals("plink|modal")) {   // 2026-10-11 account-link
+            Map<String, String> v = new HashMap<>();
+            collectValues(ctx.data.get("components"), v);
+            linkPremium(ctx, v.getOrDefault("name", "").trim());
             return;
         }
         if (!id.startsWith("ann|")) return;
@@ -503,6 +638,7 @@ final class Interactions {
         addButtons(rows, subs, 2);
         if (cfg.keysEnabled && cfg.keysPanelButton && rows.size() < 5) {   // 2026-10-07 auth-gate
             desc.append("\n\n**学习版玩家**：点 🔑 领取登录密钥（每个 Discord 账号只发一次，只有你能看到）");
+            desc.append("\n**正版玩家**：进服后点 🔗 关联正版账号，在游戏里点「确认」（可以用 Discord 登录网站，学习版号和正版号会合成一个人）");   // 2026-10-11 account-link
             JsonObject b = new JsonObject();
             b.addProperty("type", 2);
             b.addProperty("style", 2);
@@ -513,6 +649,15 @@ final class Interactions {
             b.add("emoji", em);
             JsonArray row = new JsonArray();
             row.add(b);
+            JsonObject link = new JsonObject();   // 2026-10-11 account-link
+            link.addProperty("type", 2);
+            link.addProperty("style", 2);
+            link.addProperty("label", "关联正版账号");
+            link.addProperty("custom_id", "plink|open");
+            JsonObject le = new JsonObject();
+            le.addProperty("name", "🔗");
+            link.add("emoji", le);
+            row.add(link);
             JsonObject ar = new JsonObject();
             ar.addProperty("type", 1);
             ar.add("components", row);
@@ -625,15 +770,25 @@ final class Interactions {
 
     private void ping(Ctx ctx) throws Exception {
         ctx.ephemeral = true;
-        BotConfig.PanelRole entry = plugin.cfg().entry(ctx.option("group"));
+        BotConfig cfg = plugin.cfg();
+        BotConfig.PanelRole entry = cfg.entry(ctx.option("group"));
+        String current = ctx.d.get("channel_id").getAsString();
+        boolean admin = ctx.isAdmin();
+        if (!admin) {   // 2026-10-18 public ping
+            String refusal = pingRules.refusal(cfg, entry, ctx.userId(), ctx.option("channel"), current, System.currentTimeMillis());
+            if (refusal != null) {
+                ctx.text(refusal);
+                return;
+            }
+        }
         if (entry == null) {
             ctx.text("找不到这个通知组，请从下拉列表里选。");
             return;
         }
         String text = ctx.option("message");
         String channel = ctx.option("channel");
-        if (channel == null) channel = ctx.d.get("channel_id").getAsString();
-        String guild = plugin.cfg().guildId;
+        if (channel == null) channel = current;
+        String guild = cfg.guildId;
         ctx.defer(true);
         Notifier.Mention m;
         if (entry.subscribe()) {
@@ -650,7 +805,8 @@ final class Interactions {
         } else {
             m = Notifier.role(plugin.resolveRoleId(entry));
         }
-        String tail = text == null || text.isBlank() ? "" : " " + BotRules.truncate(text.trim(), 1800);
+        String tail = !admin ? PingRules.tail(ctx.userId(), text, cfg.pingMaxLength)   // 2026-10-18 public ping: show who called
+                : text == null || text.isBlank() ? "" : " " + BotRules.truncate(text.trim(), 1800);
         JsonObject msg = message(m.content() + tail, null);
         msg.add("allowed_mentions", m.allowed());
         String id;
@@ -664,6 +820,7 @@ final class Interactions {
             }
             throw e;
         }
+        if (!admin) pingRules.record(ctx.userId(), entry.key(), System.currentTimeMillis());   // 2026-10-18 public ping: cooldown only after it was posted
         String link = "https://discord.com/channels/" + guild + "/" + channel + "/" + id;
         ctx.text("✅ 已 @ 「" + entry.name() + "」" + (m.count() > 0 ? "（" + m.count() + " 人）" : "") + "：" + link
                 + (m.gone() > 0 ? "\n有 " + m.gone() + " 人已经退出服务器，已从名单移除" : ""));
@@ -675,6 +832,16 @@ final class Interactions {
         String id = ctx.data.get("custom_id").getAsString();
         if (PlotDesk.ownsComponent(id)) {   // 2026-10-08 bot-plots: [同意]/[驳回]
             plugin.plots().handle(ctx.d);
+            return;
+        }
+        if (id.equals("plink|open")) {   // 2026-10-11 account-link: panel button → ask for the 正版 name
+            JsonArray comps = new JsonArray();
+            comps.add(textInput("你的正版游戏名", "name", 1, true, 16, "要先进服在线"));
+            JsonObject data = new JsonObject();
+            data.addProperty("custom_id", "plink|modal");
+            data.addProperty("title", "关联正版账号");
+            data.add("components", comps);
+            ctx.callback(9, data);
             return;
         }
         ctx.ephemeral = true;
@@ -1002,6 +1169,22 @@ final class Interactions {
         if ("new".equals(r.get("status"))) plugin.adminLog("🔑 " + ctx.actorName() + "（<@" + ctx.userId() + ">）领取了学习版登录密钥");
     }
 
+    /** 2026-10-11 account-link: 「关联正版账号」 — the game shows the player a confirm dialog; the result comes back as a DM. */
+    private void linkPremium(Ctx ctx, String name) throws Exception {
+        ctx.ephemeral = true;
+        HubAuthKeys keys = plugin.authKeys();
+        if (keys == null) {
+            ctx.text("游戏服务器现在不可用（MiniGameHub 没有运行），请稍后再试。");
+            return;
+        }
+        if (name == null || !name.matches("[A-Za-z0-9_]{1,16}")) {
+            ctx.text("请填正确的正版游戏名（字母、数字、下划线，最多 16 个字符）。");
+            return;
+        }
+        ctx.defer(true);
+        ctx.text(KeyRules.premiumReply(keys.requestPremiumLink(ctx.userId(), ctx.userTag(), name)));
+    }
+
     private void lookupKeys(Ctx ctx) throws Exception {
         ctx.ephemeral = true;
         HubAuthKeys keys = plugin.authKeys();
@@ -1072,8 +1255,10 @@ final class Interactions {
         List<String[]> pairs = new ArrayList<>(); // {显示名, 值}
         if (focused.equals("group")) {
             boolean onlyGroups = cmd.equals("notifygroup");
+            boolean onlyPublic = cmd.equals("ping") && !ctx.isAdmin();   // 2026-10-18 public ping
             for (BotConfig.PanelRole r : plugin.cfg().panelRoles) {
                 if (onlyGroups && !r.subscribe()) continue;
+                if (onlyPublic && !plugin.cfg().pingPublic.contains(r.key())) continue;
                 String label = r.subscribe() ? r.name() + "（通知组 · " + plugin.subscriptions().count(r.key()) + " 人）" : r.name() + "（常驻身份组）";
                 pairs.add(new String[]{label, r.key()});
             }
@@ -1141,6 +1326,34 @@ final class Interactions {
             ctx.text(o.has(ctx.userId()) ? "你现在是「已退出」：机器人不收集你的消息，也不转发到游戏里。"
                     : "你现在是「正常」：你在反馈频道的消息可能会被整理进反馈汇总；在互通频道的消息会转发到游戏里。可以用 /minmin 隐私 退出。");
         }
+    }
+
+    // =============== 2026-10-17 /minmin 说：Discord → 游戏公屏，不需要 Message Content Intent ===============
+
+    static final int SAY_MAX = 200;
+
+    /** 不能发时的提示；null = 可以发。 */
+    static String sayRefusal(BotConfig cfg, String channelId, boolean optedOut) {
+        if (!cfg.bridgeChat || cfg.bridgeChannel.isEmpty()) return "聊天互通没有打开。";
+        if (!cfg.bridgeChannel.equals(channelId)) return "请到聊天互通频道 <#" + cfg.bridgeChannel + "> 里用这个指令。";
+        if (optedOut) return "你用 /minmin 隐私 退出了互通，消息不会发到游戏里。可以用 /minmin 隐私 恢复 改回来。";
+        return null;
+    }
+
+    private void say(Ctx ctx) throws Exception {
+        String text = ctx.option("text");
+        text = text == null ? "" : text.replace('\n', ' ').trim();
+        String refusal = text.isEmpty() ? "内容不能为空。" : sayRefusal(plugin.cfg(), ctx.d.get("channel_id").getAsString(), plugin.optOut().has(ctx.userId()));
+        if (refusal != null) {
+            ctx.ephemeral = true;
+            ctx.text(refusal);
+            return;
+        }
+        String name = ctx.actorName();
+        plugin.relayToGame(BotRules.truncate(name, 32), BotRules.truncate(text, SAY_MAX));
+        JsonObject msg = message("💬 **" + name.replace("_", "\\_").replace("*", "\\*") + "** → 游戏：" + text, null);
+        msg.add("allowed_mentions", noMentions());
+        ctx.reply(msg);
     }
 
     // =============== /minmin 收集（2026-10-07 message collect） ===============
@@ -1294,16 +1507,9 @@ final class Interactions {
         return thread;
     }
 
-    /** Discord 单条消息的上传上限（按服务器加成等级），留一点余量。 */
+    /** Discord 单条消息的上传上限（按服务器加成等级），留一点余量。2026-10-12 bot-posting: shared with console posts via DiscordRest. */
     private long uploadLimit(String guild) {
-        int tier = 0;
-        try {
-            JsonObject g = plugin.rest().get("/guilds/" + guild).getAsJsonObject();
-            if (g.has("premium_tier")) tier = g.get("premium_tier").getAsInt();
-        } catch (IOException ignored) {
-        }
-        long mb = tier >= 3 ? 100 : tier == 2 ? 50 : 10;
-        return mb * 1024 * 1024 - 256 * 1024;
+        return plugin.rest().uploadLimit(guild);
     }
 
     // =============== 工具 ===============

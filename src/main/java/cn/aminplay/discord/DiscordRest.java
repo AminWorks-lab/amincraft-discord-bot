@@ -53,6 +53,14 @@ final class DiscordRest {
      * payload gets attachments[] with the file names (UTF-8 names such as Amincraft-回放-2026-10-07.zip).
      */
     JsonElement postFiles(String path, JsonObject payload, List<Path> files) throws IOException {
+        return postFiles(path, payload, files, null);
+    }
+
+    /**
+     * 2026-10-12 bot-posting: attachmentsIn = name of the object inside payload that gets attachments[] (forum thread creation:
+     * "message", the starter message); null = top level as before.
+     */
+    JsonElement postFiles(String path, JsonObject payload, List<Path> files, String attachmentsIn) throws IOException {
         com.google.gson.JsonArray att = new com.google.gson.JsonArray();
         for (int i = 0; i < files.size(); i++) {
             JsonObject a = new JsonObject();
@@ -61,7 +69,8 @@ final class DiscordRest {
             att.add(a);
         }
         JsonObject p = payload.deepCopy();
-        p.add("attachments", att);
+        if (attachmentsIn == null) p.add("attachments", att);
+        else p.getAsJsonObject(attachmentsIn).add("attachments", att);
         String boundary = "AmincraftBoundary" + Long.toHexString(System.nanoTime());
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         out.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"payload_json\"\r\nContent-Type: application/json\r\n\r\n").getBytes(StandardCharsets.UTF_8));
@@ -74,6 +83,22 @@ final class DiscordRest {
         out.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         byte[] body = out.toByteArray();
         return send("POST", path, () -> HttpRequest.BodyPublishers.ofByteArray(body), "multipart/form-data; boundary=" + boundary, Duration.ofMinutes(3));
+    }
+
+    /** 2026-10-12 bot-posting: moved from Interactions — one message's upload limit by the guild's boost tier, with some headroom. */
+    long uploadLimit(String guild) {
+        int tier = 0;
+        try {
+            JsonObject g = get("/guilds/" + guild).getAsJsonObject();
+            if (g.has("premium_tier")) tier = g.get("premium_tier").getAsInt();
+        } catch (IOException | RuntimeException ignored) {
+        }
+        return uploadLimitForTier(tier);
+    }
+
+    static long uploadLimitForTier(int tier) {
+        long mb = tier >= 3 ? 100 : tier == 2 ? 50 : 10;
+        return mb * 1024 * 1024 - 256 * 1024;
     }
 
     /** 2026-10-07 message collect：按扩展名给 Content-Type（图片能在 Discord 里直接预览）。 */

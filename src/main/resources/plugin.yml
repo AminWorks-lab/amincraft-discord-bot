@@ -1,5 +1,5 @@
 name: AminPlayDiscord
-version: 1.2.0
+version: 1.2.1
 main: cn.aminplay.discord.AminPlayDiscord
 api-version: '1.21'
 description: Amincraft 的 Discord 机器人（身份面板、公告、管理指令、开关服通知、聊天互通、类脑市地块申请）
@@ -8,7 +8,7 @@ softdepend: [MiniGameHub]
 commands:
   discordbot:
     description: Discord 机器人管理
-    usage: /discordbot <status|reload|set <项目> <值>|admins|sources <list|add|remove>|panel …|replays <status|post-now>|keys|plots>
+    usage: /discordbot <status|reload|set <项目> <值>|admins|sources <list|add|remove>|panel …|replays <status|post-now>|keys|plots|posts|post <频道|别名> <草稿|text:…> [--dry-run]|forum <论坛|别名> <草稿> [--dry-run]>
     permission: aminplay.discord.admin
 permissions:
   aminplay.discord.admin:

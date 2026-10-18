@@ -22,6 +22,13 @@ channels:
   # 2026-10-08 类脑市地块申请：新申请发到这里（嵌入 + 同意/驳回按钮，只有管理员能点）。请用只有管理员能看的频道（留空=不发）
   # 用 /discordbot set channels.plots <频道id> 设置
   plots: ""
+  # 2026-10-17 游戏内一键反馈：玩家在游戏里 /反馈 的内容（嵌入卡片 + 截图）发到这里；论坛频道会每条开一个新帖。不会 @ 任何人（留空=不发）
+  # 需要 MiniGameHub 的 feedback.yml enabled: true。用 /discordbot set channels.feedback <频道id> 设置
+  feedback: ""
+  # 2026-10-17 对局精彩回放：每个精彩片段（五杀、宝具多杀、团灭、翻盘、1vN 残局、ACE、爆头连杀……）发一张卡片到这里；论坛频道会每条开一个新帖。
+  # 不会 @ 任何人；用 /minmin 隐私 退出的人，名字换成「某位玩家」（网页回放里也一样）。需要 MiniGameHub 的 highlights.yml enabled: true（留空=不发）
+  # 用 /discordbot set channels.highlights <频道id> 设置
+  highlights: ""
 
 roles:
   # 除了「管理员」和「管理服务器」权限的人以外，额外允许使用管理指令的身份组 id
@@ -42,15 +49,47 @@ roles:
     #   emoji: "📦"
     #   description: "新版本上线时通知你"
 
+# 2026-10-18 /minmin 通知 对所有人开放：管理员照旧能 @ 面板上任何项目；一般成员只能 @ 下面列出的项目（填 roles.panel 的 key，
+# 例如「缺人找我」这种通知组），只能发在自己所在的频道，消息后面会写上是谁呼叫的，不会带出 @everyone 或别的 @。
+# 改：/discordbot set ping.public key1,key2（留空 = 只有管理员能用）
+ping:
+  public: []
+  # 同一个人两次 @ 之间至少隔几秒；同一个项目两次被 @ 之间至少隔几秒（0 = 不限）
+  user-cooldown-seconds: 600
+  group-cooldown-seconds: 300
+  # 一般成员 @ 时附带的话最多几个字
+  max-length: 200
+
 panel:
   title: "🔔 订阅通知"
   text: "点下面的按钮订阅，再点一次取消。订阅后，发布相关公告时会 @ 你。"
 
 bridge:
-  # MC 聊天 ↔ Discord 频道互通。需要在 Developer Portal → Bot 打开 Message Content Intent
+  # MC 公屏聊天 → Discord 互通频道（channels.bridge）。只发不读时不需要任何特殊权限。
   chat: false
+  # 2026-10-17 是否读取互通频道里的普通消息并转进游戏。要在 Developer Portal → Bot 打开 Message Content Intent，
+  # 拿不到这个权限就保持 false：Discord 里的人用 /minmin 说 <内容> 把话发进游戏公屏（只能在互通频道里用）。
+  read-messages: false
   # 玩家进出服时在互通频道提示
   join-leave: true
+
+# 2026-10-15 对局聊天：一局小游戏开始时（需要 MiniGameHub 的 MatchChatApi），在下面的文字频道里开一个公开子区并 @ 本局有 Discord 绑定的玩家
+# （用 /minmin 隐私 退出的不 @ 也不拉进私密子区），队伍 / 杀手各开一个私密子区。子区里发言会转发到游戏里对应的房间，游戏里的房间聊天也转发进子区。
+# 默认关闭。开启前：建一个「对局」文字频道（必须是文字频道，论坛不行）；给机器人「创建公开子区」「创建私密子区」「管理子区」「在子区发消息」权限；
+# 在 Developer Portal → Bot 打开 Message Content Intent。开关和频道改了要重启服务器才会生效（Gateway intent）。
+# 机器人重启会忘掉已开的子区：它们不再转发，也不会被锁定（Discord 60 分钟无消息会自动归档）。
+match-chat:
+  enabled: false
+  # 文字频道 id（/discordbot set match-chat.channel <id>）
+  channel: ""
+  # 开局时在公开子区 @ 参与者
+  mention: true
+  # 为队伍 / 杀手开私密子区（false = 只开公开子区，私密房间不进 Discord）
+  private-rooms: true
+  # 只为这些 gameId 开子区（空 = 全部；/discordbot set match-chat.games bedwars,murder）
+  games: []
+  # 对局结束后多少秒锁定并归档子区
+  close-delay-seconds: 60
 
 notify:
   # 开服通知时 @ 面板里第一个身份组（服务器经常重启的话建议关着）
@@ -75,6 +114,16 @@ replays:
   forum-tag: ""
   # 每隔多少秒看一次有没有待发的回放包
   poll-seconds: 60
+
+# 2026-10-12 控制台发帖：只在服务器控制台用 /discordbot posts | post | forum。草稿写在 plugins/AminPlayDiscord/posts/<名字>.md，
+# 附件放在 posts/files/。只往外发消息，不读取任何频道的内容。每次发送都记到控制台、posts/sent.log 和 channels.log 管理记录频道。
+posts:
+  # 别名 modpack 对应的整合包论坛 id（/discordbot set posts.modpack-forum <id>）
+  modpack-forum: ""
+  # 单个附件上限（MB）；实际还受 Discord 服务器加成等级限制（无加成约 10 MB），太大的整合包请改发下载链接
+  max-file-mb: 100
+  # 频道别名：名字 → 频道 id（/discordbot set posts.aliases.<名字> <频道id>）。内置 announce = channels.announce，modpack = 上面的 modpack-forum
+  aliases: {}
 
 server:
   name: "Amincraft"
@@ -110,3 +159,49 @@ keys:
   panel-button: true
   # 除了仅自己可见的回复，再私信一份备份（玩家关了私信也照样能领）
   dm-copy: true
+
+# 网页一次性登录码：与上面的学习版绑定密钥用途不同，只复用已存在的 Discord ↔ 游戏账号绑定。
+# 默认关闭；绑定变更/封禁/账号注销/设备撤销事件钩子、网页入口和 Discord 权限未验证前不要开启。
+# Discord 网页 SSO 独立于 AuthMe 游戏密码；单独更改游戏密码不撤销 Discord 网页会话。
+# 即使开启，MiniGameHub 服务端适配器未就绪仍拒绝发码；不会自动绑定或修改账号。
+# 仅在 /minmin 网页登录码 的本人可见回复中显示，不发私信备份、不发公共频道、不记录码。
+web-login:
+  enabled: false
+
+# 2026-10-12 定时广告：管理员在某个频道或子区里用 /minmin 定时广告 设置，之后机器人就按时间在那里发小游戏服务器的广告卡片。
+# 默认没有任何定时广告（不用指令设置就什么都不发）。设置存在 plugins/AminPlayDiscord/promo-schedules.json（不要提交到 Git）。
+#   /minmin 定时广告 设置 时间:12:00,20:00     每天这些时间发（按下面的时区）
+#   /minmin 定时广告 设置 间隔:3               从每天 0 点起每 3 小时整点发
+#   /minmin 定时广告 预览 / 关闭 / 列表
+promo:
+  # 谁能用 /minmin 定时广告（Discord 用户 id；2026-10-12 服主定：只有服主）。留空 = 谁都不能设置
+  allowed-users: []
+  # 「12:00」这些时间按哪个时区算
+  timezone: "Asia/Shanghai"
+  # 离这个频道上一条广告（含预览）不到这么多分钟，就跳过这次定时（防刷屏）
+  min-gap-minutes: 30
+  # 关服等原因错过了时间点，过了这么多分钟就不补发
+  grace-minutes: 10
+  # 卡片标题（留空用「🎮 <server.name> 小游戏服务器」）
+  title: "🎮 Amincraft 小游戏服务器"
+  # 卡片开头的介绍（设置时填了「文字」就用那段文字代替这里）
+  intro: "一起来玩小游戏吧！正版玩家和学习版玩家都可以进，随时开局，人机也能陪练。"
+  # 显示的服务器地址（留空 = 用下面 server.address；两个都空就不显示）。只写对外公开的地址
+  address: ""
+  # 「可以玩」一栏
+  modes:
+    - "方块MOBA（42 位英雄）"
+    - "方块CS"
+    - "宝具对战"
+    - "生存宾果"
+    - "起床战争"
+    - "空岛战争"
+    - "类脑市：建造和经济"
+  # 整合包 / 助手模组下载链接（留空 = 不显示链接）
+  modpack-url: ""
+  # 整合包论坛频道 id（留空 = 用 posts.modpack-forum；都空就不显示）
+  modpack-forum: ""
+  # 卡片底部的小字
+  footer: "学习版玩家：在 Discord 用 /minmin 领取密钥 领取登录密钥后进服"
+  # 卡片左边的颜色（十六进制）
+  color: "57C84D"

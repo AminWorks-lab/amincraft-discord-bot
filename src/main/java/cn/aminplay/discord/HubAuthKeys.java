@@ -18,11 +18,15 @@ class HubAuthKeys {
 
     private final Object provider;
     private final Method claim, lookup, banDiscord, unbanDiscord, resolvePlayer, isVerified, confirmLogin, setEventSink, status;
+    private final Method claimWebLogin;
+    private final Method requestPremiumLink;   // 2026-10-11 account-link (optional: older MiniGameHub has none)
 
     /** 测试用：子类不走反射。 */
     HubAuthKeys() {
         provider = null;
         claim = lookup = banDiscord = unbanDiscord = resolvePlayer = isVerified = confirmLogin = setEventSink = status = null;
+        claimWebLogin = null;
+        requestPremiumLink = null;
     }
 
     private HubAuthKeys(Class<?> api, Object provider) throws NoSuchMethodException {
@@ -36,6 +40,21 @@ class HubAuthKeys {
         confirmLogin = api.getMethod("confirmLogin", String.class, String.class, boolean.class);
         setEventSink = api.getMethod("setEventSink", Consumer.class);
         status = api.getMethod("status");
+        // Additive capability: old MiniGameHub providers must keep the original key flow working.
+        Method web;
+        try {
+            web = api.getMethod("claimWebLogin", String.class, String.class);
+        } catch (NoSuchMethodException ignored) {
+            web = null;
+        }
+        claimWebLogin = web;
+        Method link;
+        try {
+            link = api.getMethod("requestPremiumLink", String.class, String.class, String.class);
+        } catch (NoSuchMethodException ignored) {
+            link = null;
+        }
+        requestPremiumLink = link;
     }
 
     static HubAuthKeys find() {
@@ -64,6 +83,16 @@ class HubAuthKeys {
     }
 
     Map<String, Object> claim(String discordId, String discordName) throws Exception { return map(call(claim, discordId, discordName)); }
+
+    /** Trusted Gateway caller only. This never claims, looks up, or reuses a legacy binding key. */
+    Map<String, Object> claimWebLogin(String discordId, String interactionId) throws Exception {
+        return claimWebLogin == null ? Map.of("status", "unavailable") : map(call(claimWebLogin, discordId, interactionId));
+    }
+
+    /** 2026-10-11 account-link: shows the online 正版 player a confirm dialog. */
+    Map<String, Object> requestPremiumLink(String discordId, String discordName, String name) throws Exception {
+        return requestPremiumLink == null ? Map.of("status", "disabled") : map(call(requestPremiumLink, discordId, discordName, name));
+    }
 
     @SuppressWarnings("unchecked")
     List<Map<String, Object>> lookup(String query) throws Exception {

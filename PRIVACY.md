@@ -13,7 +13,7 @@
 - **聊天互通**：2026-10-18 起**开启，只发不读**。
   - 游戏 → Discord：不在对局中的玩家在游戏公屏的发言（游戏名和内容），以及玩家进出服务器的提示（游戏名和在线人数），会发到 Discord 的交流频道。对局里的聊天不会发出去。这些消息只存在于 Discord 频道里，机器人不另外保存。
   - Discord → 游戏：机器人**不读取**交流频道或其它频道里的普通消息（也没有申请读取消息内容的权限）。想把话发进游戏，需要你自己在交流频道里使用 `/minmin 说 <内容>`（最多 200 字，会在频道里公开显示「名字 → 游戏：内容」）；正在对局中的玩家收不到。
-- **游戏数据**：你在游戏服务器里的对局记录、排行榜和回放由游戏服务器产生，机器人会把其中一部分发到 Discord（例如每日回放、排行榜）。以后可能会增加个人数据汇报。
+- **游戏数据**：你在游戏服务器里的对局记录、排行榜和回放由游戏服务器产生，机器人会把其中一部分发到 Discord（例如每日回放、排行榜）。对局精彩回放（五杀、团灭等）会发一张卡片到交流频道，写着主角的游戏名，不 @ 任何人；用 `/minmin 隐私 退出` 的人，名字会换成「某位玩家」（网页回放里也一样）。以后可能会增加个人数据汇报。
 
 我们**不**收集密码、支付信息，也**不**读取和上面这些用途无关的频道或私信。
 
@@ -47,7 +47,7 @@
   - Plot applications for the in-game city: when you apply for a plot (in game or with `/minmin 申请地块`), your Minecraft name, the plot and your reason (plus a Discord mention if your game account is bound) are posted to an **admin-only channel** for approval, and the result is synced back to the game; co-developer confirmations are sent to you as DM buttons (the bot does not read DM content).
   - Feedback messages, **only** from the feedback channels an admin has configured (bug reports, suggestions), when an admin runs the collect command: message text, author names and attachments. They are compiled into a summary posted to a private Discord thread visible only to that admin. Temporary files are deleted immediately after posting. **Message content is not stored outside Discord.** No other channels are collected.
   - The chat bridge is **on since 2026-10-18, send-only**. Public in-game chat from players who are not in a match (Minecraft name and text) and join/leave notices (name and online count) are posted to the Discord exchange channel; chat inside a match is not posted. These messages exist only in that Discord channel. The bot does **not** read normal messages in that channel or any other (it does not request message-content access). To send a line into the game you have to use `/minmin 说 <text>` in the exchange channel yourself (max 200 characters, shown publicly in the channel); players in a match don't receive it.
-  - Game data such as match records, leaderboards and replays is produced by the game server, and some of it is posted to Discord.
+  - Game data such as match records, leaderboards and replays is produced by the game server, and some of it is posted to Discord. Match highlight cards (multi-kills, team wipes, …) are posted to the exchange channel with the featured player's Minecraft name and no pings; if you opted out with `/minmin 隐私 退出`, your name is shown as 「某位玩家」 ("a player"), also in web replays.
 - **What we don't collect:** passwords and payment data. We don't read unrelated channels or DMs.
 - **Opt out:** run `/minmin 隐私 退出` (privacy → opt out). After that, your messages are no longer collected and you can't use `/minmin 说` to send messages into the game. Use `/minmin 隐私 恢复` to opt back in. The opt-out applies to your Discord account: your **public in-game chat** and join/leave notices are still posted to the exchange channel (chat inside a match is not).
 - **Use:** only to run the Amincraft server and community. Never sold or shared, with two exceptions:

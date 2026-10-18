@@ -68,6 +68,30 @@ final class KeyRules {
         return "🔑 你的 Amincraft 学习版登录密钥（备份）：`" + key + "`\n" + howTo(key);
     }
 
+    /** 2026-10-11 account-link: answer to 「关联正版账号」 (status from MiniGameHub requestPremiumLink). */
+    static String premiumReply(Map<String, Object> r) {
+        Object name = r.get("name");
+        return switch (String.valueOf(r.get("status"))) {
+            case "sent" -> "📨 已经在游戏里给 **" + name + "** 弹出确认窗口，请在游戏里点「确认关联」（10 分钟内有效）。";
+            case "offline" -> "这个正版账号现在不在线。请先进服，再点一次「关联正版账号」。";
+            case "not-premium" -> "**" + name + "** 不是正版登录的账号。学习版玩家请用「领取学习版登录密钥」。";
+            case "already" -> "✅ **" + name + "** 已经关联到你的 Discord 了。";
+            case "has-other" -> "你的 Discord 已经关联了正版账号 **" + r.get("other") + "**。一个 Discord 只能关联一个正版账号，要换请找管理员。";
+            case "taken" -> "这个正版账号已经关联了别的 Discord 账号。如果不是你关联的，请找管理员。";
+            case "banned" -> "你的 Discord 账号已被封禁，不能关联。";
+            case "too-many" -> "这个正版账号已经和另一个游戏号合并过了，不能再关联。需要调整请找管理员。";
+            case "disabled" -> "服务器现在没有开启正版关联。";
+            default -> "游戏服务器暂时没法处理，请稍后再试。";
+        };
+    }
+    static String premiumResult(String name, String status) {
+        return switch (status) {
+            case "ok" -> "✅ 正版账号 **" + name + "** 已关联到你的 Discord。现在可以用 Discord 登录网站；如果你还绑了学习版账号，两个号会合成一个人（钱、地、排名、成就都算同一份）。";
+            case "denied" -> "游戏里的 **" + name + "** 拒绝了这次关联，没有任何改动。";
+            default -> "**" + name + "** 没有关联成功：这个账号或你的 Discord 已经关联过别的账号了。";
+        };
+    }
+
     static String loginConfirm(String name, int seconds) {
         return "🔐 有人用 **" + name + "** 登录 Amincraft，是你吗？\n" + seconds + " 秒内点「是我」就直接登录（不用输密码）；不是你就点「不是我」，对方会被踢出。";
     }
